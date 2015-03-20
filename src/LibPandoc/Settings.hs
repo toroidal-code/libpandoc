@@ -17,7 +17,7 @@ import Text.Pandoc
 data LibPandocSettings =
     LibPandocSettings { writerOptions :: WriterOptions
                       , readerOptions :: ReaderOptions
-                      } deriving (Data, Typeable)
+                      } deriving (Show, Data, Typeable)
 
 defaultLibPandocSettings :: LibPandocSettings
 defaultLibPandocSettings =

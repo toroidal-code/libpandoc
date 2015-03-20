@@ -24,6 +24,8 @@ import qualified Data.Generics.Rep as Rep
 import qualified Text.XML.Light as Xml
 import qualified Text.XML.Light.Generic as XG
 
+import Debug.Trace
+
 -- | The type of the main entry point.
 type CPandoc = CInt -> CString -> CString -> CString
              -> FunPtr CReader -> FunPtr CWriter -> Ptr ()
@@ -93,6 +95,50 @@ getOutputFormat x =
       "xml"          -> Just writeXml
       _              -> Nothing
 
+showRep'' :: Rep.ValueRep -> String
+showRep'' (Rep.ValueRep name (Right x)) = "RIGHT''"
+--        "Value with name: " ++ name ++ " and fields:\n{\n"
+--        ++ (foldr (++) "\n}\n" $ map (\val -> showRep'' val ++ ", ") x)
+showRep'' (Rep.TupleRep x) = "TUPLE''"
+--        "Tuple with fields:\n(\n"
+--        ++ (foldr (++) "\n)\n" $ map (\val -> showRep'' val ++ ", ") x)
+showRep'' (Rep.ListRep x) = "LIST''"
+--        "List with fields:\n[\n"
+--        ++ (foldr (++) "\n]\n" $ map (\val -> showRep'' val ++ ", ") x)
+showRep'' val =
+        "OTHER VALUE''"
+
+showRep' :: Rep.ValueRep -> String
+showRep' (Rep.ValueRep name (Left x)) =
+        "Value' with name: " ++ name ++ " and fields:\n{\n"
+        ++ (foldr (++) "\n}\n" $ map (\(name, val) -> name ++ showRep'' val ++ ", ") x)
+showRep' (Rep.ValueRep name (Right x)) = "RIGHT'"
+--        "Value with name: " ++ name ++ " and fields:\n{\n"
+--        ++ (foldr (++) "\n}\n" $ map (\val -> showRep' val ++ ", ") x)
+showRep' (Rep.TupleRep x) = "TUPLE'"
+--        "Tuple with fields:\n(\n"
+--        ++ (foldr (++) "\n)\n" $ map (\val -> showRep' val ++ ", ") x)
+showRep' (Rep.ListRep x) = "LIST'"
+--        "List with fields:\n[\n"
+--        ++ (foldr (++) "\n]\n" $ map (\val -> showRep' val ++ ", ") x)
+showRep' val =
+        "OTHER VALUE'"
+
+showRep :: Rep.ValueRep -> String
+showRep (Rep.ValueRep name (Left x)) =
+        "Value with name: " ++ name ++ " and fields:\n{\n"
+        ++ (foldr (++) "\n}\n" $ map (\(name, val) -> name ++ showRep' val ++ ", ") x)
+showRep (Rep.ValueRep name (Right x)) = "RIGHT"
+--        "Value with name: " ++ name ++ " and fields:\n{\n"
+--        ++ (foldr (++) "\n}\n" $ map (\val -> showRep val ++ ", ") x)
+showRep (Rep.TupleRep x) = "TUPLE"
+--        "Tuple with fields:\n(\n"
+--        ++ (foldr (++) "\n)\n" $ map (\val -> showRep val ++ ", ") x)
+showRep (Rep.ListRep x) = "LIST"
+--        "List with fields:\n[\n"
+--        ++ (foldr (++) "\n]\n" $ map (\val -> showRep val ++ ", ") x)
+showRep val =
+        "OTHER VALUE"
 
 joinRep :: Rep.ValueRep -> Rep.ValueRep -> Rep.ValueRep
 joinRep (Rep.ValueRep name (Left x)) (Rep.ValueRep _ (Left y)) =
@@ -115,14 +161,24 @@ getSettings settings
     | otherwise =
         do let dS = defaultLibPandocSettings
            s <- peekCString settings
-           case Xml.onlyElems (Xml.parseXML s) of
+           tmp <- case Xml.onlyElems (Xml.parseXML s) of
              (e:_) ->
                  case XG.decodeXml e of
                    Nothing  -> return dS
                    Just rep ->
-                       let r = Rep.toRep dS `joinRep` rep in
-                       return $ maybe dS id (Rep.ofRep r)
+                       let
+                         r = Rep.toRep dS `joinRep` rep
+                       in
+                         trace ("Joining the default:\n"
+                                   ++ (show dS)
+                                   ++ (showRep $ Rep.toRep dS)
+                                   ++ "\n\nwith:\n"
+                                   ++ (show rep)
+                                   ++ "\n\nresults in:\n"
+                                   ++ (showRep r)
+                                   ++ "\n") $ (return $ maybe dS id (Rep.ofRep r)) where
              _ -> return dS
+           return tmp
 
 pandoc :: CPandoc
 pandoc bufferSize input output settings reader writer userData = do
