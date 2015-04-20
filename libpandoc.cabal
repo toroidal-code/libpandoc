@@ -11,6 +11,7 @@ Executable libpandoc.dll
     CPP-Options:        -DWIN32
   Extensions:           ForeignFunctionInterface
   Build-Depends:        base              >= 4.6,
+                        blaze-html        >= 0.8,
                         containers        >= 0.5,
                         pandoc            >= 1.13.3,
                         pandoc-types      >= 1.12.4,
@@ -22,6 +23,7 @@ Executable libpandoc.dll
                         highlighting-kate >= 0.5,
                         data-default      >= 0.5,
                         bytestring        >= 0.10,
+                        vector            >= 0.9,
                         json              >= 0.9
   Hs-Source-Dirs:       src
   Include-Dirs:         src
@@ -29,4 +31,4 @@ Executable libpandoc.dll
   Install-Includes:     pandoc.h
   Main-Is:              LibPandoc.hs
   CC-Options:           -fPIC
-  Ghc-Options:          -no-hs-main -dynamic -shared -lHSrts-ghc$compiler
+  Ghc-Options:          -no-hs-main -dynamic -shared -lHSrts_debug-ghc7.10.1

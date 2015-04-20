@@ -27,7 +27,7 @@ module LibPandoc (pandoc, LibPandocSettings(..), defaultLibPandocSettings) where
 import           Control.Arrow              ((>>>))
 import           Control.Exception          (catch, Exception(..), SomeException(..))
 import           Control.Monad.Except       (MonadError(..))
-import qualified Data.ByteString.Lazy.Char8 as BLC
+import qualified Data.ByteString.Lazy       as BL
 import qualified Data.Char                  as Char
 import qualified Data.List                  as List
 import qualified Data.Map                   as Map
@@ -35,23 +35,34 @@ import           Data.Maybe
 import           Data.String (IsString)
 import           Data.Typeable              (typeOf)
 import           Foreign
+import           Foreign.Ptr
 import           Foreign.C.String
 import           Foreign.C.Types
 import           LibPandoc.IO
 import           LibPandoc.Settings
 import           System.IO.Unsafe
+import           Text.Blaze.Html.Renderer.Utf8 (renderHtml)
+import           Text.Blaze.Html
 import           Text.Pandoc
 import           Text.Pandoc.Error
 import           Text.JSON
 import           Text.JSON.Generic          (toJSON,fromJSON)
+import           Text.Pandoc.Highlighting
+import qualified Text.Highlighting.Kate     as Hk
+import qualified Text.XML.Light             as Xml
 
 -- | The type of the main entry point.
 type CPandoc = CInt -> CString -> CString -> CString
              -> FunPtr CReader -> FunPtr CWriter -> Ptr ()
              -> IO CString
 
-foreign export ccall "pandoc" pandoc     :: CPandoc
-foreign export ccall "increase" increase :: CInt -> IO CInt
+type CHighlight = CInt -> CString -> CString -> CInt ->
+                  FunPtr CReader -> FunPtr CWriter -> Ptr () -> IO CString
+
+foreign export ccall "valid_language" validLanguage :: CString -> IO CInt
+foreign export ccall "highlight" libHighlight :: CHighlight
+foreign export ccall "pandoc" pandoc      :: CPandoc
+foreign export ccall "increase" increase  :: CInt -> IO CInt
 foreign import ccall "dynamic" peekReader :: FunPtr CReader -> CReader
 foreign import ccall "dynamic" peekWriter :: FunPtr CWriter -> CWriter
 
@@ -145,3 +156,34 @@ pandoc bufferSize input output settings reader writer userData = do
 
 decodeInt :: CInt -> Int
 decodeInt = fromInteger . toInteger
+validLanguage :: CString -> IO CInt
+validLanguage language
+  | language == nullPtr = return 0
+  | otherwise = do
+      lang <- peekCString language
+      case toListingsLanguage lang of
+       Just _  -> return 1
+       Nothing -> return 0
+      
+libHighlight :: CHighlight
+libHighlight bufferSize lang format block reader writer userData = do
+   l <- peekCString lang
+   f <- peekCString format
+   let formatter = getFormatter f
+       result    = highlight formatter ("", [l], [])
+       r         = peekReader reader
+       w         = peekWriter writer
+   transformBytes (decodeInt bufferSize) (result >>> renderMaybeHtml) r w userData
+   return nullPtr
+  where
+    renderMaybeHtml :: Maybe Html -> BL.ByteString
+    renderMaybeHtml res =
+      case res of
+       Just s -> renderHtml s
+       Nothing -> BL.empty
+--    getFormatter :: forall a. (Show a) => String -> (Hk.FormatOptions -> [Hk.SourceLine] -> a)
+    getFormatter format =
+      case map Char.toLower format of
+--       "latex"    -> if block == 1 then formatLaTeXBlock else formatLaTeXInline
+       otherwise  -> if block == 1 then formatHtmlBlock else formatHtmlInline -- Default to html
+ 

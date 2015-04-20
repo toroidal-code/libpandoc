@@ -27,15 +27,21 @@
 extern "C" {
 #endif
 
+typedef int (*reader_t)(char *, int, void *);
+typedef void (*writer_t)(const char *, int, void *);
+
+#ifndef WIN32
 /*
  * Initializes the Haskell runtime. Every call to this function should
  * be matched with exactly one call to `pandoc_exit`.
  */
-void pandoc_init();
+int pandoc_init();
 
+  
 /* Shuts down the Haskell runtime.  */
 void pandoc_exit();
-
+#endif
+  
 /*
  * Calls `pandoc` with given input and output formats and streams.
  * Returns a `NULL` on success, or a `NULL`-terminated error message
@@ -45,8 +51,12 @@ void pandoc_exit();
  */
 char *pandoc(int buffer_size,
             const char *input_format, const char *output_format, const char *settings,
-            int (*reader)(char *, void *), void (*writer)(const char *, int, void *),
-            void *user_data);
+            reader_t reader, writer_t writer, void *user_data);
+
+int valid_language(const char* language);
+  
+char *highlight(int buffer_size, const char *language, const char *output_format,
+                int block, reader_t reader, writer_t writer, void *user_data);
 
 #ifdef __cplusplus
 }
