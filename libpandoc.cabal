@@ -20,7 +20,6 @@ Executable libpandoc.dll
                         digest            >= 0.0,
                         xml               >= 1.3,
                         utf8-string       >= 0.3,
-                        highlighting-kate >= 0.5,
                         data-default      >= 0.5,
                         bytestring        >= 0.10,
                         vector            >= 0.9,

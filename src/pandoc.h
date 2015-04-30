@@ -55,8 +55,8 @@ char *pandoc(int buffer_size,
 
 int valid_language(const char* language);
   
-char *highlight(int buffer_size, const char *language, const char *output_format,
-                int block, reader_t reader, writer_t writer, void *user_data);
+void highlight(int buffer_size, const char *language, const char *output_format,
+               int block, reader_t reader, writer_t writer, void *user_data);
 
 #ifdef __cplusplus
 }

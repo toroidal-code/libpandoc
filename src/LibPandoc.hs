@@ -32,24 +32,19 @@ import qualified Data.Char                  as Char
 import qualified Data.List                  as List
 import qualified Data.Map                   as Map
 import           Data.Maybe
-import           Data.String (IsString)
 import           Data.Typeable              (typeOf)
 import           Foreign
-import           Foreign.Ptr
 import           Foreign.C.String
 import           Foreign.C.Types
 import           LibPandoc.IO
 import           LibPandoc.Settings
-import           System.IO.Unsafe
 import           Text.Blaze.Html.Renderer.Utf8 (renderHtml)
-import           Text.Blaze.Html
+import qualified Text.Blaze.Html            as BH
 import           Text.Pandoc
 import           Text.Pandoc.Error
 import           Text.JSON
 import           Text.JSON.Generic          (toJSON,fromJSON)
 import           Text.Pandoc.Highlighting
-import qualified Text.Highlighting.Kate     as Hk
-import qualified Text.XML.Light             as Xml
 
 -- | The type of the main entry point.
 type CPandoc = CInt -> CString -> CString -> CString
@@ -57,7 +52,7 @@ type CPandoc = CInt -> CString -> CString -> CString
              -> IO CString
 
 type CHighlight = CInt -> CString -> CString -> CInt ->
-                  FunPtr CReader -> FunPtr CWriter -> Ptr () -> IO CString
+                  FunPtr CReader -> FunPtr CWriter -> Ptr () -> IO ()
 
 foreign export ccall "valid_language" validLanguage :: CString -> IO CInt
 foreign export ccall "highlight" libHighlight :: CHighlight
@@ -126,7 +121,7 @@ getSettings settings = do
   let defaults = defaultLibPandocSettings
   s <- peekCString settings
   let userSettings = fromResult . decodeStrict $ s
-      combined     = userSettings `joinJSON` toJSON defaults 
+      combined     = userSettings `joinJSON` toJSON defaults
   return . fromResult . fromJSON $ combined
   where
     fromResult :: Result a -> a
@@ -143,12 +138,15 @@ pandoc bufferSize input output settings reader writer userData = do
   case (getInputFormat i, getOutputFormat o) of
    (Nothing, _)            -> newCString "Invalid input format."
    (_, Nothing)            -> newCString "Invalid output format."
-   (Just read, Just write) ->
-     do let run = read (readerOptions s) >>> handleError >>> write (writerOptions s)
-        result <- tryMaybe (transform (decodeInt bufferSize) run r w userData)
-        case result of
-         Just (SomeException res) -> newCString (show (typeOf res) ++ ": " ++ show res)
-         Nothing -> return nullPtr
+   (Just read, Just write) -> do
+     let run = read (readerOptions s) >>> handleError >>> write (writerOptions s)
+               >>> filter (/= Char.chr 0) -- For some truly unfathomable reason, Pandoc has a
+                                          -- tendency to introduce null-chars right in the
+                                          -- middle of text. So we have to filter those out.
+     result <- tryMaybe (transform (decodeInt bufferSize) run r w userData)
+     case result of
+      Just (SomeException res) -> newCString (show (typeOf res) ++ ": " ++ show res)
+      Nothing -> return nullPtr
 
   where
     tryMaybe :: IO a -> IO (Maybe SomeException)
@@ -164,26 +162,40 @@ validLanguage language
       case toListingsLanguage lang of
        Just _  -> return 1
        Nothing -> return 0
-      
-libHighlight :: CHighlight
-libHighlight bufferSize lang format block reader writer userData = do
-   l <- peekCString lang
-   f <- peekCString format
-   let formatter = getFormatter f
-       result    = highlight formatter ("", [l], [])
-       r         = peekReader reader
-       w         = peekWriter writer
-   transformBytes (decodeInt bufferSize) (result >>> renderMaybeHtml) r w userData
-   return nullPtr
+
+libHighlightLaTeX :: Int -> String -> Bool -> CReader -> CWriter -> Ptr () -> IO ()
+libHighlightLaTeX bufferSize lang block = do
+  let result    = highlight formatter ("", [lang], [])
+  transform bufferSize (result >>> renderMaybe)
   where
-    renderMaybeHtml :: Maybe Html -> BL.ByteString
+    renderMaybe :: Maybe String -> String
+    renderMaybe = fromMaybe ""
+    formatter = if block
+                then formatLaTeXBlock
+                else formatLaTeXInline
+
+libHighlightHtml :: Int -> String -> Bool -> CReader -> CWriter -> Ptr () -> IO ()
+libHighlightHtml bufferSize lang block = do
+  let result    = highlight formatter ("", [lang], [])
+  transformBytes bufferSize (result >>> renderMaybeHtml)
+  where
+    renderMaybeHtml :: Maybe BH.Html -> BL.ByteString
     renderMaybeHtml res =
       case res of
        Just s -> renderHtml s
        Nothing -> BL.empty
---    getFormatter :: forall a. (Show a) => String -> (Hk.FormatOptions -> [Hk.SourceLine] -> a)
-    getFormatter format =
-      case map Char.toLower format of
---       "latex"    -> if block == 1 then formatLaTeXBlock else formatLaTeXInline
-       otherwise  -> if block == 1 then formatHtmlBlock else formatHtmlInline -- Default to html
- 
+    formatter = if block
+                then formatHtmlBlock
+                else formatHtmlInline
+
+libHighlight :: CHighlight
+libHighlight bufferSize lang format block reader writer userData = do
+   language     <- peekCString lang
+   outputFormat <- peekCString format
+   let bufSize   = decodeInt bufferSize
+       blockBool = block == 1
+       read      = peekReader reader
+       write     = peekWriter writer
+   case map Char.toLower outputFormat of
+    "latex" -> libHighlightLaTeX bufSize language blockBool read write userData
+    _       -> libHighlightHtml bufSize language blockBool read write userData

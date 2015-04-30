@@ -1,6 +1,7 @@
 {-
  - Copyright (C) 2009-2010  Anton Tayanovskyy <name.surname@gmail.com>
  - Copyright (C) 2015  Shahbaz Youssefi <ShabbyX@gmail.com>
+ - Copyright (C) 2015  Katherine Whitlock <toroidalcode@gmail.com>
  -
  - This file is part of libpandoc, providing C bindings to Pandoc.
  -
@@ -22,13 +23,14 @@
 -- | Provides unterleaved UTF-8 input/output to and from C functions.
 module LibPandoc.IO (CReader, CWriter, transform, transformBytes) where
 
-import Foreign
-import Foreign.C
-import System.IO.Unsafe
 import qualified Codec.Binary.UTF8.String as Utf8
 import qualified Data.ByteString.Lazy     as BL
-import qualified Data.ByteString          as BS
- 
+import           Data.String              (IsString)
+import           Foreign
+import           Foreign.C
+import           System.IO.Unsafe
+
+
 -- | Represents an input stream as a function.  Reads UTF-8 encoded
 -- | characters by copying them into the buffer and returns the number
 -- | of bytes remaining to be read (See loop in @readStream@)
@@ -44,68 +46,78 @@ type CWriter = CString -> CInt -> Ptr () -> IO ()
 -- | bytes returned by the reader and passed to the writer should not
 -- | exceed the buffer size.
 transform :: Int -> (String -> String) -> CReader -> CWriter -> Ptr () -> IO ()
-transform bufferSize transformer reader writer userData =
-    withBuffer bufferSize $ \rbuf ->
-    withBuffer bufferSize $ \wbuf ->
-    do s <- readStream rbuf reader userData
-       writeStream wbuf writer (transformer s) userData
+transform = transformWrite writeStream
 
 transformBytes :: Int -> (String -> BL.ByteString) -> CReader -> CWriter -> Ptr () -> IO ()
-transformBytes bufferSize transformer reader writer userData =
-  withBuffer bufferSize $ \rbuf ->
-  withBuffer bufferSize $ \wbuf ->
-  do s <- readStream rbuf reader userData
-     writeByteStream wbuf writer (transformer s) userData
+transformBytes = transformWrite writeByteStream
+
+type StreamWriter a = (Buffer -> CWriter -> a -> Ptr () -> IO ())
+
+transformWrite :: (IsString a) => StreamWriter a -> Int ->
+                  (String -> a) -> CReader -> CWriter -> Ptr () -> IO ()
+transformWrite streamWriter bufferSize transformer reader writer userData
+  = withBuffer bufferSize $ \ rbuf ->
+    withBuffer bufferSize $ \ wbuf ->
+    do s <- readStream rbuf reader userData
+       streamWriter wbuf writer (transformer s) userData
 
 newtype Buffer = Buffer (CString, Int)
 
 withBuffer :: Int -> (Buffer -> IO a) -> IO a
-withBuffer bufferSize action = withCString init act where
+withBuffer bufferSize action
+  = withCString init act
+  where
     init    = replicate bufferSize ' '
     act str = action (Buffer (str, bufferSize))
 
 readStream :: Buffer -> CReader -> Ptr () -> IO String
-readStream (Buffer (buf, size)) reader userData = unsafeInterleaveIO result where
+readStream (Buffer (buf, size)) reader userData
+  = unsafeInterleaveIO result
+  where
     sz     = encodeInt size
     result = reader buf sz userData >>= loop . decodeInt
     loop 0 = return []
     loop n = do
-      s <- peekCStringLen (buf, n) 
+      s <- peekCStringLen (buf, n)
       k <- reader buf sz userData
       fmap (Utf8.decodeString s ++) (loop (decodeInt k))
 
 writeStream :: Buffer -> CWriter -> String -> Ptr() -> IO ()
-writeStream (Buffer (buf, size)) writer text userData = loop text where
+writeStream (Buffer (buf, size)) writer text userData
+  = loop text
+  where
     buffer = castPtr buf
     loop text = do
       let (head, tail) = splitAt (div size 4) text
           bytes        = Utf8.encode head
       pokeArray buffer bytes
       writer buffer (encodeInt (length bytes)) userData
-      case tail of
-        [] -> do
-          writer nullPtr (encodeInt 0) userData -- Give our writer a chance to clean up
-          return ()
-        _  -> loop tail
+      if null tail then do
+        writer nullPtr (encodeInt 0) userData -- Give our writer a chance to clean up
+        return ()
+       else loop tail
 
 writeByteStream :: Buffer -> CWriter -> BL.ByteString -> Ptr() -> IO ()
-writeByteStream (Buffer (buf, size)) writer text userData = loop strict where
+writeByteStream (Buffer (buf, size)) writer text userData
+  = loop text
+  where
      buffer = castPtr buf
-     strict = BL.toStrict text
      loop text = do
-       let (head, tail) = BS.splitAt (div size 4) text
-       BS.useAsCStringLen head (\(b,i) -> do
-         copyArray buffer b i
-         writer buffer (encodeInt i) userData
-         case BS.null tail of
-          True  -> do
-            writer nullPtr (encodeInt 0) userData
-            return ()
-          False -> loop tail)
+       let (head, tail) = BL.splitAt (div (fromIntegral size) 4) text
+           bytes = BL.unpack head
+       pokeArray buffer bytes
+       writer buffer (encodeInt (length bytes)) userData
+       if BL.null tail then do
+         writer nullPtr (encodeInt 0) userData -- Give our writer a chance to clean up
+         return ()
+        else loop tail
 
 
+
+-- | These are necesarry only because their
+-- | signatures qualify the type variables
 decodeInt :: CInt -> Int
-decodeInt x = fromInteger (toInteger x)
+decodeInt = fromIntegral
 
 encodeInt :: Int -> CInt
-encodeInt x = fromInteger (toInteger x)
+encodeInt = fromIntegral
