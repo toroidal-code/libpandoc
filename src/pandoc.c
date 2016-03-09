@@ -18,10 +18,10 @@
  * along with libpandoc.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+
 #ifdef WIN32
 #include <windows.h>
 #include <Rts.h>
-
 extern void __stginit_LibPandoc(void);
 
 BOOL STDCALL DllMain(HANDLE hModule, DWORD reason, void *reserved)
@@ -33,26 +33,17 @@ BOOL STDCALL DllMain(HANDLE hModule, DWORD reason, void *reserved)
   return TRUE;
 }
 
-void pandoc_init()
-{
-
-}
-
-void pandoc_exit()
-{
-}
-
 #else
 #include <stdlib.h>
 #include <HsFFI.h>
 
-void pandoc_init()
-{
+HsBool pandoc_init() {
   int argc = 1;
   static char arg0[] = "libpandoc";
   static char *args[] = {arg0, NULL};
   char **argv = args;
   hs_init(&argc, &argv);
+  return HS_BOOL_TRUE;
 }
 
 void pandoc_exit()

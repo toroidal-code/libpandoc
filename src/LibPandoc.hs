@@ -27,7 +27,7 @@ module LibPandoc (pandoc, LibPandocSettings(..), defaultLibPandocSettings) where
 import           Control.Arrow              ((>>>))
 import           Control.Exception          (catch, Exception(..), SomeException(..))
 import           Control.Monad.Except       (MonadError(..))
-import qualified Data.ByteString.Lazy.Char8 as BLC
+import qualified Data.ByteString.Lazy       as BL
 import qualified Data.Char                  as Char
 import qualified Data.List                  as List
 import qualified Data.Map                   as Map
@@ -35,6 +35,7 @@ import           Data.Maybe
 import           Data.String (IsString)
 import           Data.Typeable              (typeOf)
 import           Foreign
+import           Foreign.Ptr
 import           Foreign.C.String
 import           Foreign.C.Types
 import           LibPandoc.IO
@@ -50,8 +51,8 @@ type CPandoc = CInt -> CString -> CString -> CString
              -> FunPtr CReader -> FunPtr CWriter -> Ptr ()
              -> IO CString
 
-foreign export ccall "pandoc" pandoc     :: CPandoc
-foreign export ccall "increase" increase :: CInt -> IO CInt
+foreign export ccall "pandoc" pandoc      :: CPandoc
+foreign export ccall "increase" increase  :: CInt -> IO CInt
 foreign import ccall "dynamic" peekReader :: FunPtr CReader -> CReader
 foreign import ccall "dynamic" peekWriter :: FunPtr CWriter -> CWriter
 
@@ -59,7 +60,7 @@ increase :: CInt -> IO CInt
 increase x = return (x + 1)
 
 readNativeWrapper :: ReaderOptions -> String -> Either PandocError Pandoc
-readNativeWrapper options = readNative
+readNativeWrapper _ = readNative
 
 getInputFormat :: String -> Maybe (ReaderOptions -> String -> Either PandocError Pandoc)
 getInputFormat x =
@@ -115,7 +116,7 @@ getSettings settings = do
   let defaults = defaultLibPandocSettings
   s <- peekCString settings
   let userSettings = fromResult . decodeStrict $ s
-      combined     = userSettings `joinJSON` toJSON defaults 
+      combined     = userSettings `joinJSON` toJSON defaults
   return . fromResult . fromJSON $ combined
   where
     fromResult :: Result a -> a

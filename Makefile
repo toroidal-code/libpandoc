@@ -9,6 +9,11 @@ main:
 	cabal install --only-dependencies
 	cabal build
 
+demo: highlighting_demo
+
+highlighting_demo: demo/highlighting.c
+	$(CC) -lpandoc -o $@ $^
+
 install:
 	install -T dist/build/libpandoc.dll/libpandoc.dll /usr/lib/libpandoc.so
 	install src/pandoc.h /usr/include/
